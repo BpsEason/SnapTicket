@@ -1,0 +1,110 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: snap_ticket_app
+    restart: always
+    volumes:
+      - .:/var/www/html # 掛載專案目錄
+      - app_log:/var/www/html/storage/logs # 持久化 Laravel 日誌
+    environment:
+      # 用於等待服務啟動
+      WAIT_HOSTS: db:3306 redis:6379
+      WAIT_TIMEOUT: 240 # 等待時間 (秒)
+      # 從 .env 讀取 Laravel 相關配置
+      APP_NAME: ${APP_NAME}
+      APP_ENV: ${APP_ENV}
+      APP_KEY: ${APP_KEY}
+      APP_DEBUG: ${APP_DEBUG}
+      APP_URL: ${APP_URL}
+      LOG_CHANNEL: ${LOG_CHANNEL}
+      DB_CONNECTION: ${DB_CONNECTION}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_DATABASE: ${DB_DATABASE}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_CLIENT: ${REDIS_CLIENT}
+      BROADCAST_DRIVER: ${BROADCAST_DRIVER}
+      CACHE_DRIVER: ${CACHE_DRIVER}
+      QUEUE_CONNECTION: ${QUEUE_CONNECTION}
+      SESSION_DRIVER: ${SESSION_DRIVER}
+      SESSION_LIFETIME: ${SESSION_LUTION}
+      MAIL_MAILER: ${MAIL_MAILER}
+      # 自訂 Swoole 環境變數
+      SWOOLE_HTTP_HOST: ${SWOOLE_HTTP_HOST}
+      SWOOLE_HTTP_PORT: ${SWOOLE_HTTP_PORT}
+      SWOOLE_WORKER_NUM: ${SWOOLE_WORKER_NUM}
+      SWOOLE_TASK_WORKER_NUM: ${SWOOLE_TASK_WORKER_NUM}
+      SWOOLE_MAX_REQUEST: ${SWOOLE_MAX_REQUEST}
+      SWOOLE_DAEMONIZE: ${SWOOLE_DAEMONIZE}
+      SWOOLE_QUEUE_WORKER_NUM: ${SWOOLE_QUEUE_WORKER_NUM}
+      SWOOLE_QUEUE_MAX_REQUESTS: ${SWOOLE_QUEUE_MAX_REQUESTS}
+      SWOOLE_QUEUE_DAEMONIZE: ${SWOOLE_QUEUE_DAEMONIZE}
+      SWOOLE_QUEUE_TIMEOUT: ${SWOOLE_QUEUE_TIMEOUT}
+      SWOOLE_QUEUE_SLEEP: ${SWOOLE_QUEUE_SLEEP}
+      SWOOLE_TABLE_TICKET_STOCK: ${SWOOLE_TABLE_TICKET_STOCK}
+      # 壓力測試令牌
+      TEST_API_TOKEN: ${TEST_API_TOKEN}
+    depends_on:
+      - db
+      - redis
+    networks:
+      - app-network
+
+  nginx:
+    image: nginx:stable-alpine
+    container_name: snap_ticket_nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "9501:9501" # 暴露 Swoole 端口，方便直接測試
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - .:/var/www/html:ro # Nginx 只讀訪問應用程式程式碼
+    depends_on:
+      - app
+    networks:
+      - app-network
+
+  db:
+    image: mysql:8.0
+    container_name: snap_ticket_mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-password}
+      MYSQL_DATABASE: ${DB_DATABASE:-snapticket}
+      MYSQL_USER: ${DB_USERNAME:-root}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-password}
+    ports:
+      - "3306:3306"
+    volumes:
+      - dbdata:/var/lib/mysql # 持久化資料庫數據
+    networks:
+      - app-network
+
+  redis:
+    image: redis:7.0.12-alpine # 指定精確版本
+    container_name: snap_ticket_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data # 持久化 Redis 數據
+    networks:
+      - app-network
+
+volumes:
+  dbdata:
+  redisdata:
+  app_log:
+
+networks:
+  app-network:
+    driver: bridge
