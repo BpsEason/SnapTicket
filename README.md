@@ -305,11 +305,3 @@ docker-compose exec app php artisan test
 3. 提交變更（`git commit -m 'Add xxx feature'`）
 4. 推送到分支（`git push origin feature/xxx`）
 5. 提交 Pull Request
-
-## 授權
-本專案採用 [MIT License](LICENSE)。
-
-## 聯繫
-如有問題，請提交 [Issue](https://github.com/BpsEason/SnapTicket/issues) 或聯繫作者。
-
-感謝使用 SnapTicket！🎫
