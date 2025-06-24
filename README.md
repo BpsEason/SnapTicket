@@ -2,7 +2,7 @@
 
 ![PHP](https://img.shields.io/badge/PHP-8.2-blue) ![Laravel](https://img.shields.io/badge/Laravel-10.x-red) ![Swoole](https://img.shields.io/badge/Swoole-4.x-green) ![Redis](https://img.shields.io/badge/Redis-7.0-orange) ![Docker](https://img.shields.io/badge/Docker-Enabled-blue) ![License](https://img.shields.io/badge/License-MIT-brightgreen)
 
-**SnapTicket** 是一個基於 **Laravel**、**Redis** 和 **Swoole** 打造的高併發搶票系統，專為大規模票務搶購場景設計。本專案僅包含應用層核心代碼（模型、控制器、服務、遷移等），不包含 Laravel 框架基礎代碼（例如 `vendor/` 目錄）。您需要通過 Composer 安裝 Laravel 及其依賴來運行專案。系統利用原子性庫存管理、非同步訂單處理和壓力測試工具，實現高效、穩定的搶票體驗。
+**SnapTicket** 是一個基於 **Laravel**、**Redis** 和 **Swoole** 打造的高併發搶票系統，專為大規模票務搶購場景設計。本專案僅包含應用層核心代碼（模型、控制器、服務、遷移等），不包含 Laravel 框架基礎代碼（例如 `vendor/` 目錄）。您需要通過 Composer 安裝 Laravel 框架及其依賴來運行專案。系統利用原子性庫存管理、非同步訂單處理和壓力測試工具，實現高效、穩定的搶票體驗。
 
 ## 專案亮點
 - **高併發搶票**：採用 Redis Lua 腳本實現庫存扣減的原子性，防止超賣。
@@ -49,7 +49,7 @@ graph TD
 - Bash 環境（用於執行腳本）
 
 ### 安裝步驟
-**重要提示**：本專案僅包含應用層核心代碼，不包含 Laravel 框架的基礎代碼（例如 `vendor/` 目錄）。您必須執行 `composer install` 來安裝 Laravel 框架及其依賴。
+**重要提示**：本專案僅包含應用層核心代碼（例如 `app/`、`config/`、`database/` 等），不包含 Laravel 框架基礎代碼（例如 `vendor/` 目錄）。您必須執行 `composer install` 來安裝 Laravel 框架及其依賴。
 
 1. **克隆專案**：
    ```bash
@@ -297,6 +297,37 @@ docker-compose exec app php artisan test
 測試檔案：
 - `tests/Feature/TicketServiceTest.php`：搶票邏輯與併發控制
 - `tests/Feature/OrderJobTest.php`：訂單處理與支付超時
+
+## 常見問題 (FAQ)
+以下是 SnapTicket 專案的設計與技術選型常見問題，幫助面試官或使用者了解系統的核心實現：
+
+### Q1: SnapTicket 如何在高併發下防止超賣？
+**A1**: 本系統採用 **Redis Lua 腳本**實現庫存扣減的原子性。當搶票請求到達時，Lua 腳本會原子性地檢查庫存並進行扣減。如果庫存不足，則拒絕請求。這確保了即使在極端併發情況下，庫存操作也是安全的，不會出現超賣。
+
+### Q2: 為什麼選擇 Redis 進行庫存管理而不是直接操作 MySQL？
+**A2**: 選擇 Redis 是基於其**高性能**和**原子性操作**特性。Redis 是記憶體數據庫，讀寫速度遠超 MySQL，在高併發場景下可避免數據庫瓶頸。Redis 的 `DECR` 命令或 Lua 腳本能以非阻塞方式實現原子操作，提升系統吞吐量。
+
+### Q3: 系統如何處理用戶重複搶票的問題？
+**A3**: 我們在 Redis 中為每個用戶和票種設置了**唯一鎖（`user:ticket:lock`）**。使用 `SETNX` 命令檢查鎖是否存在，若成功則設置過期時間並繼續搶票流程；若失敗則拒絕請求，防止重複搶票。
+
+### Q4: 為什麼需要非同步訂單處理？具體流程是怎樣的？
+**A4**: 非同步處理解耦了核心搶票邏輯與耗時操作，提升響應速度和併發能力。流程如下：
+1. Redis 庫存扣減成功後，在 MySQL 創建 `pending` 狀態訂單。
+2. 派發 `ProcessOrderJob` 到 Redis 隊列，由 Swoole 工作進程非同步消費。
+3. `ProcessOrderJob` 延遲派發 `MonitorPaymentJob`，檢查支付超時。
+4. 若訂單仍為 `pending`，則取消訂單並恢復 Redis 庫存。
+
+### Q5: Swoole 在 SnapTicket 中扮演什麼角色？為何不用 PHP-FPM？
+**A5**: Swoole 提供**高性能 HTTP 服務**和**非同步隊列處理**：
+- **Swoole HTTP Server**：常駐記憶體運行 Laravel，減少初始化開銷，提升 QPS。
+- **Swoole Queue Worker**：消費 Redis 隊列任務，實現訂單非同步處理。
+相較於 PHP-FPM，Swoole 的協程模型以更低資源處理高併發請求，提升效率。
+
+### Q6: 如何確保 Redis 庫存與 MySQL 訂單數據的一致性？
+**A6**: 採用「先 Redis 扣減，後 MySQL 事務創建訂單」的策略。若 MySQL 事務失敗，會回滾並恢復 Redis 庫存（`Redis::incr`）並釋放用戶鎖。Job 使用 `afterCommit()` 確保僅在事務提交後派發，保證數據一致性。
+
+### Q7: 壓力測試工具如何使用和評估結果？
+**A7**: 使用 `php artisan stress:grab` 命令模擬高併發搶票，需提供 `TEST_API_TOKEN`。報告包含總請求數、成功數、失敗數、耗時和 QPS。評估時關注 QPS 是否達標、成功率是否接近 100%（排除庫存不足失敗），並監控服務器資源使用。
 
 ## 貢獻
 歡迎提交 Issue 或 Pull Request！請遵循以下步驟：
